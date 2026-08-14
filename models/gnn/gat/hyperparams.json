@@ -4,26 +4,30 @@
   },
   "dataset": {
     "dataset_fraction": 1,
-    "train": "./assets/train",
-    "test": "./assets/graphs",
-    "raw_dataset": "./assets/graphs",
-    "raw_dataset_csv": "./assets/graphs",
+    "train": "./data/assets/train",
+    "valid": "./data/assets/valid",
+    "test": "./data/assets/test",
+    "raw_dataset": "./data/assets/graphs",
+    "raw_dataset_csv": "./data/BitcoinHeistData.csv",
     "end_block": 500000,
     "start_block": 400000,
-    "step": 1000,
+    "step": 2,
     "txs_per_block": 2
   },
   "training": {
     "learning_rate": 3e-4,
     "clipnorm": 1.0,
     "batch_size": 64,
-    "epochs_number": 100,
+    "epochs_number": 3,
     "validation_split": 0.3,
+    "seed": 42,
+    "class_weighted_loss": true,
     "verbose": 1
   },
   "testing": {
     "batch_size": 16,
     "verbose": 1,
+    "show_plots": false,
     "model_path": "gat_model_best_v_3_6.h5"
   }
 }

@@ -65,6 +65,9 @@ class DatasetParams:
         self.train = json_dictionary.get(
             "train", "./../../assets/train/"
         ).replace(" ", "")
+        self.valid = json_dictionary.get(
+            "valid", "./../../assets/valid/"
+        ).replace(" ", "")
         self.raw_dataset = json_dictionary.get("raw_dataset", "./../../assets/graphs/").replace(" ", "")
         self.dataset_fraction = json_dictionary.get("dataset_fraction", 1.0)
         self.start_block = json_dictionary.get("start_block", 0)
@@ -97,6 +100,8 @@ class TrainingParams:
         self.validation_split = json_dictionary.get("validation_split", 0.2)
         self.verbose = json_dictionary.get("verbose", 1)
         self.clipnorm = json_dictionary.get("clipnorm", 1.0)
+        self.seed = json_dictionary.get("seed", 42)
+        self.class_weighted_loss = json_dictionary.get("class_weighted_loss", True)
 
     @staticmethod
     def default() -> TrainingParams:
@@ -132,6 +137,7 @@ class TestingParams:
         ).replace(" ", "")
         self.batch_size = json_dictionary.get("batch_size", 32)
         self.verbose = json_dictionary.get("verbose", 1)
+        self.show_plots = json_dictionary.get("show_plots", False)
 
     @staticmethod
     def default() -> TrainingParams:

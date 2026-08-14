@@ -6,90 +6,83 @@ import numpy as np
 import random
 import logging
 
-
 from utils.graph import GraphHelper
+from utils.features import model_edge_feature_vector, model_node_feature_vector
 
 
 class GraphDatasetLoader(Dataset):
-    def __init__(self, base_dir, label_encoder, logger: logging.Logger, dataset_size=1000):
+    def __init__(self, base_dir, label_encoder, logger: logging.Logger, dataset_size=None):
         self.logger = logger
-        self.dataset_size = dataset_size
         self.base_dir = base_dir
-        self.all_files = [f for f in os.listdir(base_dir) if f.endswith('.gexf')]
-        self.files = random.sample(self.all_files, self.dataset_size)
+        if not os.path.isdir(base_dir):
+            raise ValueError(f"Graph dataset directory does not exist: {base_dir}")
+        self.all_files = sorted(f for f in os.listdir(base_dir) if f.endswith('.gexf'))
+        requested_size = len(self.all_files) if dataset_size is None else dataset_size
+        n = min(requested_size, len(self.all_files)) if self.all_files else 0
+        self.dataset_size = n
+        self.files = (
+            list(self.all_files)
+            if n == len(self.all_files)
+            else random.sample(self.all_files, n)
+        )
         self.graph_helper = GraphHelper(self.logger)
         self.label_encoder = label_encoder
+        self._metadata_cache = {}
 
     def __len__(self):
         return len(self.files)
 
-    def __getitem__(self, idx):
-        while True:  # Keep trying until a valid graph is found
-            if idx >= len(self.files):
-                raise IndexError("Out of available files")
-
+    def metadata(self, idx):
+        if idx not in self._metadata_cache:
             filepath = os.path.join(self.base_dir, self.files[idx])
+            graph, label = self.graph_helper.load_transaction_graph_from_gexf(filepath)
+            transaction_ids = {
+                str(node)
+                for node, attrs in graph.nodes(data=True)
+                if str(node).startswith("transaction:") or str(attrs.get("node_type")) == "1"
+            }
+            self._metadata_cache[idx] = {
+                "label": "anomaly" if label != "white" else "white",
+                "transaction_ids": transaction_ids,
+                "path": filepath,
+            }
+        return self._metadata_cache[idx]
 
-            # Load the graph and label from GEXF file
-            try:
-                graph, label = self.graph_helper.load_transaction_graph_from_gexf(filepath)
-            except Exception as e:
-                print(f"Error loading file {filepath}: {e}")
-                idx += 1
-                continue
+    def __getitem__(self, idx):
+        if idx >= len(self.files):
+            raise IndexError("Out of available files")
 
-            # Convert the graph to PyG format
-            graph_pyg = from_networkx(graph)
+        filepath = os.path.join(self.base_dir, self.files[idx])
+        try:
+            graph, label = self.graph_helper.load_transaction_graph_from_gexf(filepath)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to load graph {filepath}") from exc
 
-            # Extract node features, use default random features if missing
-            node_features = []
-            for node in graph.nodes(data=True):
-                attvalues = node[1].get('attvalues')
-                feature = np.array(attvalues) if attvalues is not None else np.random.rand(
-                    5)  # Default to random features
-                node_features.append(feature)
+        if graph.number_of_nodes() == 0:
+            raise ValueError(f"Graph is empty: {filepath}")
 
-            graph_pyg.x = torch.tensor(np.array(node_features), dtype=torch.float)
+        graph_pyg = from_networkx(graph)
+        node_features = [model_node_feature_vector(attrs) for _, attrs in graph.nodes(data=True)]
+        graph_pyg.x = torch.tensor(np.array(node_features), dtype=torch.float)
 
-            # Extract edge features, with defaults if missing
-            edge_features = []
-            for edge in graph.edges(data=True):
-                attvalues = edge[2].get('attvalues', {})
-                if attvalues:
-                    feature = [float(att['value']) for att in attvalues]  # Convert attributes to float
-                else:
-                    feature = [0.0, 0.0, 0.0, 0.0]  # Default to zero features
-                edge_features.append(feature)
+        edge_features = [model_edge_feature_vector(attrs) for _, _, attrs in graph.edges(data=True)]
+        if edge_features:
+            graph_pyg.edge_attr = torch.tensor(np.array(edge_features), dtype=torch.float)
+        else:
+            graph_pyg.edge_attr = torch.zeros((0, 4), dtype=torch.float)
 
-            if edge_features:
-                graph_pyg.edge_attr = torch.tensor(np.array(edge_features), dtype=torch.float)
-            else:
-                self.logger.debug(f"Edge attributes are missing for graph {filepath}, initializing zeros.")
-                graph_pyg.edge_attr = torch.zeros((graph.number_of_edges(), 4),
-                                                  dtype=torch.float)  # Default shape is [num_edges, 4]
+        if not label:
+            raise ValueError(f"Label is missing for graph: {filepath}")
 
-            # Handle missing or incorrect labels
-            if not label:
-                self.logger.warning(f"Label is missing for file: {filepath}. Skipping...")
-                os.remove(filepath)  # Remove problematic files
-                idx += 1
-                continue
+        binary_label = "anomaly" if label != "white" else "white"
+        try:
+            encoded_label = self.label_encoder.transform([binary_label])
+        except ValueError as exc:
+            raise ValueError(f"Failed to encode label '{binary_label}' for {filepath}") from exc
 
-            label = "anomaly" if label != "white" else "white"
-            try:
-                encoded_label = self.label_encoder.transform([label])
-            except ValueError:
-                self.logger.error(f"Failed to encode label '{label}' for file {filepath}. Removing file.")
-                os.remove(filepath)  # Remove file if label encoding fails
-                idx += 1
-                continue
-
-            # Assign label as target
-            graph_pyg.y = torch.tensor([encoded_label[0]], dtype=torch.long)
-
-            return graph_pyg
+        graph_pyg.y = torch.tensor([encoded_label[0]], dtype=torch.long)
+        return graph_pyg
 
     def shuffle(self):
-        random.shuffle(self.files)
-        self.files =  random.sample(self.all_files, self.dataset_size)
-        random.shuffle(self.files)
+        n = min(self.dataset_size, len(self.all_files)) if self.all_files else 0
+        self.files = random.sample(self.all_files, n) if n else []

@@ -1,12 +1,9 @@
-from pathlib import Path
-
 import typer
 import sys
 import os
 from enum import IntEnum
 import logging
 
-import models
 from rich.logging import RichHandler
 import absl.logging
 
@@ -22,7 +19,7 @@ from utils.graph import GraphHelper
 sys.path.insert(1, os.path.join(sys.path[0], "../.."))
 
 
-app = typer.Typer(help="CLI for preprocessing the dataset and  train  triplet_network")
+app = typer.Typer(help="CLI for indexing Bitcoin graphs and training GNN classifiers")
 
 
 class VerboseMode(IntEnum):
@@ -64,8 +61,8 @@ def train_manual(
         trainer.train()
 
     except Exception as e:
-        logger.exception("Error while testing the model. Aborting...")
-        return
+        logger.exception("Error while training the model. Aborting...")
+        raise typer.Exit(code=1) from e
 
     logger.info("Done! Exiting...")
 
@@ -91,7 +88,7 @@ def index_white_addresses(
         hyperparams = GatHyperParams()
     except Exception as e:
         logger.exception("Failed to initialize the ModelTester instance. Aborting...")
-        return
+        raise typer.Exit(code=1) from e
 
     try:
         indexer = Indexer(logger)
@@ -103,7 +100,7 @@ def index_white_addresses(
 
     except Exception as e:
         logger.exception("Error while indexing new transactions. Aborting...")
-        return
+        raise typer.Exit(code=1) from e
 
     logger.info("Done! Exiting...")
 
@@ -129,7 +126,7 @@ def index_marked_addresses(
         hyperparams = GatHyperParams()
     except Exception as e:
         logger.exception("Failed to initialize the ModelTester instance. Aborting...")
-        return
+        raise typer.Exit(code=1) from e
 
     try:
         indexer = Indexer(logger)
@@ -137,7 +134,7 @@ def index_marked_addresses(
 
     except Exception as e:
         logger.exception("Error while indexing new transactions. Aborting...")
-        return
+        raise typer.Exit(code=1) from e
 
     logger.info("Done! Exiting...")
 
@@ -162,7 +159,7 @@ def test_gat(
         hyperparams = GatHyperParams()
     except Exception as e:
         logger.exception("Failed to initialize the ModelTester instance. Aborting...")
-        return
+        raise typer.Exit(code=1) from e
 
     try:
         indexer = TestGAT(hyperparams,  logger)
@@ -170,7 +167,7 @@ def test_gat(
 
     except Exception as e:
         logger.exception("Error while testing the model. Aborting...")
-        return
+        raise typer.Exit(code=1) from e
 
     logger.info("Done! Exiting...")
 
@@ -195,15 +192,15 @@ def train_gat(
         hyperparams = GatHyperParams()
     except Exception as e:
         logger.exception("Failed to initialize the ModelTester instance. Aborting...")
-        return
+        raise typer.Exit(code=1) from e
 
     try:
         indexer = GatTrainer(hyperparams,  logger)
         indexer.train_gat()
 
     except Exception as e:
-        logger.exception("Error while testing the model. Aborting...")
-        return
+        logger.exception("Error while training the model. Aborting...")
+        raise typer.Exit(code=1) from e
 
     logger.info("Done! Exiting...")
 
@@ -223,7 +220,7 @@ def rebuild_graph(verbose: Annotated[
         gh = GraphHelper(logger)
     except Exception as e:
         logger.exception("Failed to initialize the ModelTester instance. Aborting...")
-        return
+        raise typer.Exit(code=1) from e
 
     for file_path in [f for f in os.listdir(hyperparams.dataset.train) if f.endswith('.gexf')]:
         filepath = os.path.join(hyperparams.dataset.train, file_path)
@@ -249,7 +246,7 @@ def check(verbose: Annotated[
 
     except Exception as e:
         logger.exception("Failed to initialize the ModelTester instance. Aborting...")
-        return
+        raise typer.Exit(code=1) from e
 
     for file_path in [f for f in os.listdir(hyperparams.dataset.train) if f.endswith('.gexf')]:
         g,  label = gh.load_transaction_graph_from_gexf( os.path.join(hyperparams.dataset.train, file_path))

@@ -1,0 +1,10 @@
+absl-py>=2.0
+matplotlib>=3.8
+networkx>=3.2
+numpy>=1.26
+requests>=2.31
+rich>=13.7
+scikit-learn>=1.4
+torch>=2.2
+torch-geometric>=2.5
+typer>=0.12

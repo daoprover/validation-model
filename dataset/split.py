@@ -1,47 +1,71 @@
-import os
-import random
+import argparse
 import shutil
+from pathlib import Path
 
-# Paths for your data and folders
-source_folder = '/home/sempai/Desktop/Projects/validation-model/assets/graphs'
-train_folder = '/home/sempai/Desktop/Projects/validation-model/assets/train'
-valid_folder = '/home/sempai/Desktop/Projects/validation-model/assets/valid'
-test_folder = '/home/sempai/Desktop/Projects/validation-model/assets/test'
+try:
+    from dataset.group_split import grouped_train_validation_split
+except ModuleNotFoundError:
+    from group_split import grouped_train_validation_split
 
-# Create directories if they don't exist
-os.makedirs(train_folder, exist_ok=True)
-os.makedirs(valid_folder, exist_ok=True)
-os.makedirs(test_folder, exist_ok=True)
 
-# Load all files from the source folder
-all_files = [f for f in os.listdir(source_folder) if os.path.isfile(os.path.join(source_folder, f))]
+def split_dataset(source, destination, seed=42, move=False):
+    """Create a deterministic 70/15/15 train/validation/test split."""
+    source = Path(source)
+    destination = Path(destination)
+    if not source.is_dir():
+        raise ValueError(f"Dataset directory does not exist: {source}")
 
-# Shuffle the files
-random.shuffle(all_files)
+    import networkx as nx
 
-# Define split ratios
-train_ratio = 0.7
-valid_ratio = 0.15
-test_ratio = 0.15
+    files = sorted(path for path in source.iterdir() if path.is_file() and path.suffix == ".gexf")
+    labels = []
+    transaction_sets = []
+    for path in files:
+        graph = nx.read_gexf(path)
+        raw_label = graph.graph.get("name")
+        labels.append("anomaly" if raw_label != "white" else "white")
+        transaction_sets.append({
+            str(node)
+            for node, attrs in graph.nodes(data=True)
+            if str(node).startswith("transaction:") or str(attrs.get("node_type")) == "1"
+        })
 
-# Split the dataset
-train_split = int(len(all_files) * train_ratio)
-valid_split = train_split + int(len(all_files) * valid_ratio)
+    indices = list(range(len(files)))
+    train_indices, holdout_indices = grouped_train_validation_split(
+        indices, labels, transaction_sets, validation_fraction=0.30, seed=seed
+    )
+    valid_indices, test_indices = grouped_train_validation_split(
+        holdout_indices,
+        [labels[index] for index in holdout_indices],
+        [transaction_sets[index] for index in holdout_indices],
+        validation_fraction=0.50,
+        seed=seed + 1,
+    )
+    splits = {
+        "train": [files[index] for index in train_indices],
+        "valid": [files[index] for index in valid_indices],
+        "test": [files[index] for index in test_indices],
+    }
 
-train_files = all_files[:train_split]
-valid_files = all_files[train_split:valid_split]
-test_files = all_files[valid_split:]
+    operation = shutil.move if move else shutil.copy2
+    for split_name, split_files in splits.items():
+        split_directory = destination / split_name
+        split_directory.mkdir(parents=True, exist_ok=True)
+        for source_file in split_files:
+            operation(source_file, split_directory / source_file.name)
+    return {name: len(items) for name, items in splits.items()}
 
-# Move files to train folder
-for file_name in train_files:
-    shutil.move(os.path.join(source_folder, file_name), os.path.join(train_folder, file_name))
 
-# Move files to validation folder
-for file_name in valid_files:
-    shutil.move(os.path.join(source_folder, file_name), os.path.join(valid_folder, file_name))
+def main():
+    parser = argparse.ArgumentParser(description="Split GEXF graphs into train/valid/test directories")
+    parser.add_argument("source", help="Directory containing the source .gexf files")
+    parser.add_argument("destination", help="Parent directory for the output splits")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--move", action="store_true", help="Move instead of copying source files")
+    args = parser.parse_args()
+    counts = split_dataset(args.source, args.destination, seed=args.seed, move=args.move)
+    print(" ".join(f"{name}={count}" for name, count in counts.items()))
 
-# Move files to test folder
-for file_name in test_files:
-    shutil.move(os.path.join(source_folder, file_name), os.path.join(test_folder, file_name))
 
-print(f"Files moved to: \nTrain: {len(train_files)} \nValid: {len(valid_files)} \nTest: {len(test_files)}")
+if __name__ == "__main__":
+    main()
